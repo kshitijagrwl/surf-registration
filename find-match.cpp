@@ -15,6 +15,7 @@
 #include <opencv2/xfeatures2d/nonfree.hpp>
 #include "affine2d.h"
 
+#include <iostream>
 #define MAX_MATCHES 100
 
 using namespace std;
@@ -74,78 +75,47 @@ void ransacTest(const std::vector<cv::DMatch> matches, const std::vector<cv::Key
   }
 }
 
-int main(int argc, char **argv)
+
+// Matching descriptor vectors using FLANN matcher
+int flannMatcher(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vector<cv::DMatch> &good_matches)
 {
-  if (argc != 4)
-  { readme(); return -1; }
+  FlannBasedMatcher matcher;
 
-  Mat img_1 = imread(argv[1], IMREAD_GRAYSCALE);
-  Mat img_2 = imread(argv[2], IMREAD_GRAYSCALE);
+  std::vector< DMatch > matches;
+  matcher.match(descriptors_1, descriptors_2, matches);
 
-  if (!img_1.data || !img_2.data) {
-    // std::cout << " --(!) Error reading images " << std::endl;
-    printf("Error reading images\n");
-    return -1;
+  double max_dist = 0; double min_dist = 100;
+// -- Quick calculation of max and min distances between keypoints
+  for (int i = 0; i < descriptors_1.rows; i++) {
+    double dist = matches[i].distance;
+    if (dist < min_dist) min_dist = dist;
+    if (dist > max_dist) max_dist = dist;
+  }
+  printf("-- Max dist : %f \n", max_dist);
+  printf("-- Min dist : %f \n", min_dist);
+
+// -- Draw only "good" matches (i.e. whose distance is less than 2*min_dist,
+// -- or a small arbitary value ( 0.02 ) in the event that min_dist is very
+// -- small)
+  for (int i = 0; i < descriptors_1.rows; i++) {
+
+    if (matches[i].distance <= max(2 * min_dist, 0.02)) {
+      good_matches.push_back(matches[i]);
+    }
   }
 
-  //-- Step 1: Detect the keypoints using SURF Detector
-  int minHessian = atoi(argv[3]);
-  Ptr<SURF> detector = SURF::create();
-  detector->setHessianThreshold(minHessian);
-  std::vector<KeyPoint> keypoints_1, keypoints_2;
-  Mat descriptors_1, descriptors_2;
+}
 
-  detector->detectAndCompute(img_1, Mat(), keypoints_1, descriptors_1);
+int flannknn(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vector<cv::DMatch> &good_matches)
+{
 
-  //Hessian made twice for IR
-  minHessian = minHessian;
-  detector->setHessianThreshold(minHessian);
-  detector->detectAndCompute(img_2, Mat(), keypoints_2, descriptors_2);
-
-  #if 0
-  // -- Draw keypoints
-  Mat img_keypoints_1; Mat img_keypoints_2;
-
-  drawKeypoints(img_1, keypoints_1, img_keypoints_1, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
-  drawKeypoints(img_2, keypoints_2, img_keypoints_2, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
-
-  //-- Show detected (drawn) keypoints
-  imshow("Keypoints 1", img_keypoints_1);
-  imshow("Keypoints 2", img_keypoints_2);
-  #else
-
-  //-- Step 2: Matching descriptor vectors using FLANN matcher
   FlannBasedMatcher matcher;
-  
-  // std::vector< DMatch > matches;
-  // matcher.match(descriptors_1, descriptors_2, matches);
-
-  // double max_dist = 0; double min_dist = 100;
-  //-- Quick calculation of max and min distances between keypoints
-  // for (int i = 0; i < descriptors_1.rows; i++) {
-  //   double dist = matches[i].distance;
-  //   if (dist < min_dist) min_dist = dist;
-  //   if (dist > max_dist) max_dist = dist;
-  // }
-  // printf("-- Max dist : %f \n", max_dist);
-  // printf("-- Min dist : %f \n", min_dist);
-
-  //-- Draw only "good" matches (i.e. whose distance is less than 2*min_dist,
-  //-- or a small arbitary value ( 0.02 ) in the event that min_dist is very
-  //-- small)
-  // for (int i = 0; i < descriptors_1.rows; i++) {
-
-  //   if (matches[i].distance <= max(2*min_dist, 0.02)) {
-  //     good_matches.push_back(matches[i]);
-  //   }
-  // }
-
   std::vector< vector<DMatch> > matches_1, matches_2;
   matcher.knnMatch(descriptors_1, descriptors_2, matches_1, 2, noArray(), false);
 
   matcher.knnMatch(descriptors_2, descriptors_1, matches_2, 2, noArray(), false);
 
-  std::vector< DMatch > filtered_matches_1, filtered_matches_2, good_matches;
+  std::vector< DMatch > filtered_matches_1, filtered_matches_2;
 
   // Keep matches <0.8 (Lowe's paper), discard rest
   const float ratio = 0.80;
@@ -164,21 +134,66 @@ int main(int argc, char **argv)
   }
 
   symmetryTest(filtered_matches_1, filtered_matches_2, good_matches);
+}
 
-  //-- Draw only "good" matches
+int main(int argc, char **argv)
+{
+  if (argc != 4)
+  { readme(); return -1; }
+
+  Mat img_1 = imread(argv[1], IMREAD_GRAYSCALE);
+  Mat img_2 = imread(argv[2], IMREAD_GRAYSCALE);
+
+  if (!img_1.data || !img_2.data) {
+    std::cout << " --(!) Error reading images " << std::endl;
+    // printf("Error reading images\n");
+    return -1;
+  }
+
+  //-- Step 1: Detect the keypoints using SURF Detector
+  int minHessian = atoi(argv[3]);
+  Ptr<SURF> detector = SURF::create();
+  detector->setHessianThreshold(minHessian);
+  std::vector<KeyPoint> keypoints_1, keypoints_2;
+  Mat descriptors_1, descriptors_2;
+
+  detector->detectAndCompute(img_1, Mat(), keypoints_1, descriptors_1);
+
+  minHessian = minHessian;
+  detector->setHessianThreshold(minHessian);
+  detector->detectAndCompute(img_2, Mat(), keypoints_2, descriptors_2);
+
+  #if 0
+  // -- Draw keypoints
+  Mat img_keypoints_1; Mat img_keypoints_2;
+
+  drawKeypoints(img_1, keypoints_1, img_keypoints_1, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+  drawKeypoints(img_2, keypoints_2, img_keypoints_2, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+
+  //-- Show detected (drawn) keypoints
+  imshow("Keypoints 1", img_keypoints_1);
+  imshow("Keypoints 2", img_keypoints_2);
+  #endif
+
+  // -- Perform Matching
+  vector <DMatch> good_matches;
+  flannknn(descriptors_1, descriptors_2, good_matches);
+
+  // -- Draw Matches
   Mat img_matches;
 
-  Mat mask = Mat::zeros(img_1.size(), CV_8U);  // type of mask is CV_8U
-  Mat roi(mask, cv::Rect(231,130,630,334));
+  // Mat mask = Mat::zeros(img_1.size(), CV_8U);  // type of mask is CV_8U
+  // Mat roi(mask, cv::Rect(231,130,630,334));
 
-  drawMatches(img_1, keypoints_1, img_2, keypoints_2,
-              good_matches, img_matches, Scalar(0, 255, 0), Scalar(0,0,255),
-              roi, DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+  drawMatches(img_1, keypoints_1, img_2, keypoints_2, good_matches,
+              img_matches, Scalar(0, 255, 0), Scalar(0, 0, 255),
+              vector< char >(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
   printf("Found %d good matches\n", (int)good_matches.size());
+  imshow("Good Matches & Object detection", img_matches);
 
-
-  // Calculate the (Affine) Homography
+  #if 1
+  // Calculate the Affine LS Homography
   int **final_matches;
 
   final_matches = (int **)malloc(sizeof(int *)*good_matches.size());
@@ -202,37 +217,27 @@ int main(int argc, char **argv)
   Mat H = Mat(2, 3, CV_32FC1, &X);
   Mat timage;
 
-  // cvWarpAffine(&img_2, &timage, &H,CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS,cvScalarAll(0));
   warpAffine(img_2, timage, H, Size(720 , 576), INTER_LINEAR, BORDER_CONSTANT, Scalar());
-  imshow("Transformed", timage);
-  //-- Show detected matches
-  // std::vector<Point2f> obj;
-  // std::vector<Point2f> scene;
+  
+  #else
+  // -- Calculate Projective RANSAC
+  std::vector<Point2f> obj;
+  std::vector<Point2f> scene;
 
-  // for (int i = 0; i < (int)good_matches.size(); i++) {
-  //   printf("-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx);
-  //   obj.push_back(keypoints_2[ good_matches[i].queryIdx ].pt);
-  //   scene.push_back(keypoints_1[ good_matches[i].trainIdx ].pt);
-  // }
+  for (int i = 0; i < (int)good_matches.size(); i++) {
+    // printf("-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx);
+    obj.push_back(keypoints_2[ good_matches[i].queryIdx ].pt);
+    scene.push_back(keypoints_1[ good_matches[i].trainIdx ].pt);
+  }
 
-  // Mat H = findHomography(obj, scene, RANSAC);
+  Mat M = findHomography(obj, scene, RANSAC);
 
-  // std::vector<Point2f> obj_corners(4);
-  // obj_corners[0] = cvPoint(0, 0); obj_corners[1] = cvPoint(img_2.cols, 0);
-  // obj_corners[2] = cvPoint(img_2.cols, img_2.rows); obj_corners[3] = cvPoint(0, img_2.rows);
-  // std::vector<Point2f> scene_corners(4);
-  // perspectiveTransform(obj_corners, scene_corners, H);
+  cout << M <<endl;
 
-  //-- Draw lines between the corners (the mapped object in the scene - image_2 )
-  // line( img_matches, scene_corners[0] + Point2f( img_2.cols, 0), scene_corners[1] + Point2f( img_2.cols, 0), Scalar(0, 255, 0), 4 );
-  // line( img_matches, scene_corners[1] + Point2f( img_2.cols, 0), scene_corners[2] + Point2f( img_2.cols, 0), Scalar( 0, 255, 0), 4 );
-  // line( img_matches, scene_corners[2] + Point2f( img_2.cols, 0), scene_corners[3] + Point2f( img_2.cols, 0), Scalar( 0, 255, 0), 4 );
-  // line( img_matches, scene_corners[3] + Point2f( img_2.cols, 0), scene_corners[0] + Point2f( img_2.cols, 0), Scalar( 0, 255, 0), 4 );
-  //-- Show detected matches
-
-  imshow("Good Matches & Object detection", img_matches);
-
+  warpPerspective(img_2, timage, M, Size(720 , 576), INTER_LINEAR, BORDER_CONSTANT, Scalar());
   #endif
+
+  imshow("Transformed", timage);
 
   waitKey(0);
 
