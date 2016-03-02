@@ -1,10 +1,19 @@
+//
+//
+// Kshitij Agrawal
+//
+//
+//
+
 //*******************surf.cpp******************//
+
 //********** SURF implementation in OpenCV*****//
+
 //**loads image, computes SURF keypoints and descriptors **//
 
 
 #include <stdio.h>
-#include  <opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/highgui.hpp>
 
@@ -13,6 +22,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/xfeatures2d/nonfree.hpp>
 #include "affine2d.h"
+#include "registration.hpp"
 
 #include <iostream>
 #define MAX_MATCHES 100
@@ -22,7 +32,7 @@ using namespace cv;
 using namespace cv::xfeatures2d;
 
 #define CONFIDENCE 0.99
-#define DISTANCE 1.2
+#define DISTANCE 2
 
 /** @function readme */
 void readme()
@@ -30,184 +40,14 @@ void readme()
   printf("Usage: ./SURF_detector <EO IMG> <IR IMG> <hessian>\n");
 }
 
-// A basic symmetry test
-void symmetryTest(const std::vector<cv::DMatch> &matches1, const std::vector<cv::DMatch> &matches2, std::vector<cv::DMatch> &symMatches)
-{
-  symMatches.clear();
-  for (vector<DMatch>::const_iterator matchIterator1 = matches1.begin(); matchIterator1 != matches1.end(); ++matchIterator1) {
-    for (vector<DMatch>::const_iterator matchIterator2 = matches2.begin(); matchIterator2 != matches2.end(); ++matchIterator2) {
-      if ((*matchIterator1).queryIdx == (*matchIterator2).trainIdx && (*matchIterator2).queryIdx == (*matchIterator1).trainIdx) {
-        symMatches.push_back(DMatch((*matchIterator1).queryIdx, (*matchIterator1).trainIdx, (*matchIterator1).distance));
-        break;
-      }
-    }
-  }
-}
-
-// ransac test for stereo images
-// void ransacTest(const std::vector<cv::DMatch> matches, const std::vector<cv::KeyPoint> &keypoints1,
-//                 const std::vector<cv::KeyPoint> &keypoints2, std::vector<cv::DMatch> &goodMatches, double distance,
-//                 double confidence, double minInlierRatio)
-// {
-//   goodMatches.clear();
-//   // Convert keypoints into Point
-//   std::vector<cv::Point> points1, points2;
-//   for (std::vector<cv::DMatch>::const_iterator it = matches.begin(); it != matches.end(); ++it) {
-//     // Get the position of left keypoints
-//     float x = keypoints1[it->queryIdx].pt.x;
-//     float y = keypoints1[it->queryIdx].pt.y;
-//     points1.push_back(cv::Point(x, y));
-//     // Get the position of right keypoints
-//     x = keypoints2[it->trainIdx].pt.x;
-//     y = keypoints2[it->trainIdx].pt.y;
-//     points2.push_back(cv::Point(x, y));
-//   }
-//   // Compute F matrix using RANSAC
-//   std::vector<uchar> inliers(points1.size(), 0);
-//   cv::Mat fundemental = cv::findFundamentalMat(cv::Mat(points1), cv::Mat(points2), inliers, CV_FM_RANSAC,
-//                         distance, confidence); // confidence probability
-
-//   // extract the surviving (inliers) matches
-//   std::vector<uchar>::const_iterator itIn = inliers.begin();
-//   std::vector<cv::DMatch>::const_iterator itM = matches.begin();
-//   // for all matches
-//   for (; itIn != inliers.end(); ++itIn, ++itM) {
-//     if (*itIn) {
-//       // it is a valid match
-//       goodMatches.push_back(*itM);
-//     }
-//   }
-// }
-
-
-// Matching descriptor vectors using FLANN matcher
-int flannMatcher(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vector<cv::DMatch> &good_matches)
-{
-  FlannBasedMatcher matcher;
-  std::vector< DMatch > matches, final_1, final_2;
-
-  matcher.match(descriptors_1, descriptors_2, matches);
-
-  // -- Quick calculation of max and min distances between keypoints
-  double max_dist = 0; double min_dist = 100;
-  for (int i = 0; i < descriptors_1.rows; i++) {
-    double dist = matches[i].distance;
-    if (dist < min_dist) min_dist = dist;
-    if (dist > max_dist) max_dist = dist;
-  }
-  printf("-- Max dist : %f \n", max_dist);
-  printf("-- Min dist : %f \n", min_dist);
-
-  // -- Select good matches, distance <2*min_dist,
-  // -- or a small arbitary value ( 0.02 ) in the event that min_dist is very
-  // -- small
-
-  for (int i = 0; i < descriptors_1.rows; i++) {
-
-    if (matches[i].distance <= max(1.2 * min_dist, 0.02)) {
-      good_matches.push_back(matches[i]);
-    }
-  }
-
-
-  // matcher.match(descriptors_2, descriptors_1, matches);
-
-  // max_dist = 0; min_dist = 100;
-  // for (int i = 0; i < descriptors_2.rows; i++) {
-  //   double dist = matches[i].distance;
-  //   if (dist < min_dist) min_dist = dist;
-  //   if (dist > max_dist) max_dist = dist;
-  // }
-  // printf("-- Max dist : %f \n", max_dist);
-  // printf("-- Min dist : %f \n", min_dist);
-
-  // for (int i = 0; i < descriptors_2.rows; i++) {
-
-  //   if (matches[i].distance <= max(2 * min_dist, 0.02)) {
-  //     final_2.push_back(matches[i]);
-  //   }
-  // }
-
-  // symmetryTest(final_1, final_2, matches);
-
-}
-
-//Match descriptors based on knn FLANN
-int flannKnn(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vector<cv::DMatch> &good_matches)
+void cvt2point(const std::vector<cv::DMatch> matches,
+               const std::vector<cv::KeyPoint> &keypoints1,
+               const std::vector<cv::KeyPoint> &keypoints2,
+               std::vector<cv::Point> &points1,
+               std::vector<cv::Point> &points2)
 {
 
-  FlannBasedMatcher matcher;
-  std::vector< vector<DMatch> > matches_1, matches_2;
-  matcher.knnMatch(descriptors_1, descriptors_2, matches_1, 2, noArray(), false);
-
-  matcher.knnMatch(descriptors_2, descriptors_1, matches_2, 2, noArray(), false);
-
-  std::vector< DMatch > filtered_matches_1, filtered_matches_2;
-
-  // Keep matches <0.8 (Lowe's paper), discard rest
-  const float ratio = 0.76;
-  for (int i = 0; i < matches_1.size(); ++i) {
-    if (matches_1[i][0].distance < (ratio * matches_1[i][1].distance)) {
-      printf("Dist 1 %f vs Dist 2 %f , Ratio %f\nn", matches_1[i][0].distance,
-             matches_1[i][1].distance, matches_1[i][0].distance / matches_1[i][1].distance);
-      filtered_matches_1.push_back(matches_1[i][0]);
-    }
-  }
-  printf("--------------------------------------------------\n");
-  for (int i = 0; i < matches_2.size(); ++i) {
-    if (matches_2[i][0].distance < (ratio * matches_2[i][1].distance)) {
-      // printf("Dist 1 %f vs Dist 2 %f , Ratio %f\nn", matches_2[i][0].distance, matches_2[i][1].distance, matches_2[i][0].distance / matches_2[i][1].distance);
-      filtered_matches_2.push_back(matches_2[i][0]);
-    }
-  }
-  printf("Set 1 %d Set 2 %d \n", filtered_matches_1.size(), filtered_matches_2.size());
-  symmetryTest(filtered_matches_1, filtered_matches_2, good_matches);
-}
-
-int bffKnn(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vector<cv::DMatch> &good_matches)
-{
-
-  BFMatcher matcher;
-  std::vector< vector<DMatch> > matches_1, matches_2;
-  matcher.knnMatch(descriptors_1, descriptors_2, matches_1, 2, noArray(), false);
-
-  matcher.knnMatch(descriptors_2, descriptors_1, matches_2, 2, noArray(), false);
-
-  std::vector< DMatch > filtered_matches_1, filtered_matches_2;
-
-  // Keep matches <0.8 (Lowe's paper), discard rest
-  float ratio = 0.81;
-  for (int i = 0; i < matches_1.size(); ++i) {
-    if (matches_1[i][0].distance < (ratio * matches_1[i][1].distance)) {
-      // printf("Dist 1 - %f vs Dist 2 - %f , Ratio - %f\n", matches_1[i][0].distance,
-      // matches_1[i][1].distance, matches_1[i][0].distance / matches_1[i][1].distance);
-      filtered_matches_1.push_back(matches_1[i][0]);
-    }
-  }
-  printf("-----------------------------------------------------\n");
-  ratio = 0.8;
-  for (int i = 0; i < matches_2.size(); ++i) {
-    if (matches_2[i][0].distance < (ratio * matches_2[i][1].distance)) {
-      // printf("Dist 1 - %f vs Dist 2 - %f , Ratio - %f\n", matches_2[i][0].distance,
-      // matches_2[i][1].distance, matches_2[i][0].distance / matches_2[i][1].distance);
-      filtered_matches_2.push_back(matches_2[i][0]);
-    }
-  }
-  printf("Set 1 %d Set 2 %d \n", filtered_matches_1.size(), filtered_matches_2.size());
-  symmetryTest(filtered_matches_1, filtered_matches_2, good_matches);
-}
-
-cv::Mat ransacTest(
-  const std::vector<cv::DMatch> &matches,
-  const std::vector<cv::KeyPoint> &keypoints1,
-  const std::vector<cv::KeyPoint> &keypoints2,
-  std::vector<cv::DMatch> &outMatches)
-{
-  // Convert keypoints into Point - Make it a function
-  std::vector<cv::Point> points1, points2;
-  for (std::vector<cv::DMatch>::
-       const_iterator it = matches.begin();
-       it != matches.end(); ++it) {
+  for (std::vector<cv::DMatch>::const_iterator it = matches.begin(); it != matches.end(); ++it) {
     // Get the position of left keypoints
     float x = keypoints1[it->queryIdx].pt.x;
     float y = keypoints1[it->queryIdx].pt.y;
@@ -217,51 +57,55 @@ cv::Mat ransacTest(
     y = keypoints2[it->trainIdx].pt.y;
     points2.push_back(cv::Point(x, y));
   }
+
+}
+
+// ransac test for stereo images
+void ransacTest(const std::vector<cv::DMatch> matches,
+                const std::vector<cv::KeyPoint> &keypoints1,
+                const std::vector<cv::KeyPoint> &keypoints2,
+                std::vector<cv::DMatch> &goodMatches,
+                double distance, double confidence,
+                double minInlierRatio)
+{
+  goodMatches.clear();
+  // Convert keypoints into Point
+  std::vector<cv::Point> points1, points2;
+  cvt2point(matches, keypoints1, keypoints2, points1, points2);
   // Compute F matrix using RANSAC
   std::vector<uchar> inliers(points1.size(), 0);
+  // cv::Mat fundemental = cv::findFundamentalMat(cv::Mat(points1), cv::Mat(points2),
+  //                       inliers, CV_FM_RANSAC, distance, confidence);
 
-  cv::Mat fundemental = cv::findFundamentalMat(
-                          cv::Mat(points1), cv::Mat(points2), // matching points
-                          inliers,                          // match status (inlier or outlier)
-                          CV_FM_RANSAC, // RANSAC method
-                          DISTANCE,                          // distance to epipolar line
-                          CONFIDENCE); // confidence probability
+  cv::Mat fundemental = cv::findHomography(cv::Mat(points1), cv::Mat(points2),
+                        RANSAC, distance, inliers, 1000, confidence);
 
   // extract the surviving (inliers) matches
-  std::vector<uchar>::const_iterator
-  itIn = inliers.begin();
-  std::vector<cv::DMatch>::const_iterator
-  itM = matches.begin();
+  std::vector<uchar>::const_iterator itIn = inliers.begin();
+  std::vector<cv::DMatch>::const_iterator itM = matches.begin();
   // for all matches
   for (; itIn != inliers.end(); ++itIn, ++itM) {
-    if (*itIn) { // it is a valid match
-      outMatches.push_back(*itM);
+    if (*itIn) {
+      // it is a valid match
+      goodMatches.push_back(*itM);
     }
   }
+
+
   // The F matrix will be recomputed with
   // all accepted matches
   // Convert keypoints into Point
   // for final F computation
   points1.clear();
   points2.clear();
-  for (std::vector<cv::DMatch>::
-       const_iterator it = outMatches.begin();
-       it != outMatches.end(); ++it) {
-    // Get the position of left keypoints 
-    float x = keypoints1[it->queryIdx].pt.x;
-    float y = keypoints1[it->queryIdx].pt.y;
-    points1.push_back(cv::Point(x, y));
-    // Get the position of right keypoints
-    x = keypoints2[it->trainIdx].pt.x;
-    y = keypoints2[it->trainIdx].pt.y;
-    points2.push_back(cv::Point(x, y));
-  }
+  cvt2point(goodMatches, keypoints1, keypoints2, points1, points2);
+
   // Compute 8-point F from all accepted matches
-  fundemental = cv::findFundamentalMat(
-                  cv::Mat(points1), cv::Mat(points2), // matches
-                  CV_FM_8POINT); // 8-point method
-  cout << fundemental.type() << endl; 
-  return fundemental;
+  fundemental = cv::findHomography(cv::Mat(points1), cv::Mat(points2), // matches
+                  noArray(),0,2); // 8-point method
+  cout << fundemental << endl;
+
+
 }
 
 cv::Mat findAffineMat(
@@ -299,9 +143,8 @@ cv::Mat findAffineMat(
   cout << H << endl;
 
   return H;
-  
-}
 
+}
 
 int main(int argc, char **argv)
 {
@@ -310,15 +153,21 @@ int main(int argc, char **argv)
 
   Mat img_1 = imread(argv[1]);
   if (!img_1.data) {
-      std::cout << " --(!) Error reading : %s"<< argv[1] << std::endl;
-      return -1;
-    }
+    std::cout << " --(!) Error reading : %s" << argv[1] << std::endl;
+    return -1;
+  }
   Mat img_2 = imread(argv[2]);
 
   if (!img_2.data) {
-    std::cout << " --(!) Error reading : %s"<< argv[2] << std::endl;
+    std::cout << " --(!) Error reading : %s" << argv[2] << std::endl;
     return -1;
   }
+  // Convert to gray
+
+  Mat gray_ref, gray_obj;
+
+  cvtColor(img_1, gray_ref, CV_BGR2GRAY, 0);
+  cvtColor(img_2, gray_obj, CV_BGR2GRAY, 0);
 
   //-- Step 1: Detect the keypoints using SURF Detector
   int minHessian = atoi(argv[3]);
@@ -327,11 +176,11 @@ int main(int argc, char **argv)
   std::vector<KeyPoint> keypoints_1, keypoints_2;
   Mat descriptors_1, descriptors_2;
 
-  detector->detectAndCompute(img_1, Mat(), keypoints_1, descriptors_1);
+  detector->detectAndCompute(gray_ref, Mat(), keypoints_1, descriptors_1);
 
   minHessian = minHessian / 2;
   detector->setHessianThreshold(minHessian);
-  detector->detectAndCompute(img_2, Mat(), keypoints_2, descriptors_2);
+  detector->detectAndCompute(gray_obj, Mat(), keypoints_2, descriptors_2);
 
   #if 0
   // -- Draw keypoints
@@ -347,7 +196,7 @@ int main(int argc, char **argv)
 
   // -- Perform Matching
   vector <DMatch> good_matches;
-  bffKnn(descriptors_1, descriptors_2, good_matches);
+  flannKnn(descriptors_1, descriptors_2, good_matches);
 
   // -- Draw Matches
   Mat img_matches;
@@ -368,7 +217,7 @@ int main(int argc, char **argv)
   imshow("Good Matches & Object detection", img_matches);
 
   vector<DMatch> ransac_match;
-  #if 0
+  #if 1
   // Calculate the Affine LS Homography
   ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match, DISTANCE, CONFIDENCE, 0.25);
 
@@ -405,9 +254,11 @@ int main(int argc, char **argv)
   Mat H = Mat(2, 3, CV_32FC1, &X);
   Mat timage;
 
-  warpAffine(img_2, timage, H, Size(720 , 576), INTER_LINEAR,
-             BORDER_CONSTANT, Scalar());
+  warpAffine(img_2, timage, H, img_1.size(), INTER_LINEAR |
+             WARP_INVERSE_MAP , BORDER_CONSTANT, Scalar());
   imshow("Transformed", timage);
+
+  alphablending(img_1, timage);
 
   // void ransacTest(const std::vector<cv::DMatch> matches, const std::vector<cv::KeyPoint> &keypoints1,
   //   const std::vector<cv::KeyPoint> &keypoints2, std::vector<cv::DMatch> &goodMatches, double distance,
@@ -419,7 +270,7 @@ int main(int argc, char **argv)
   #else
   // -- Calculate Projective RANSAC
 
-  Mat tmat = ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match); 
+  Mat tmat = ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match);
   cout << tmat << endl;
 
   drawMatches(img_1, keypoints_1, img_2, keypoints_2, ransac_match,
@@ -433,16 +284,16 @@ int main(int argc, char **argv)
 
   warpPerspective(img_2, fimg, tmat, Size(720 , 576), INTER_LINEAR,
                   BORDER_CONSTANT, Scalar());
-  
+
   imshow("RANSAC", fimg);
 
-  Mat affinemat = Mat::zeros(2,3,CV_32FC1);
-  affinemat = findAffineMat(ransac_match,keypoints_1,keypoints_2);
+  Mat affinemat = Mat::zeros(2, 3, CV_32FC1);
+  affinemat = findAffineMat(ransac_match, keypoints_1, keypoints_2);
   cout << affinemat << endl;
 
   // warpAffine(img_2, fimg, affinemat, Size(720 , 576), INTER_LINEAR,
   //                 BORDER_CONSTANT, Scalar());
-  
+
   // imshow("Affine", fimg);
 
 
