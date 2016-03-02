@@ -61,7 +61,7 @@ void cvt2point(const std::vector<cv::DMatch> matches,
 }
 
 // ransac test for stereo images
-void ransacTest(const std::vector<cv::DMatch> matches,
+cv::Mat ransacTest(const std::vector<cv::DMatch> matches,
                 const std::vector<cv::KeyPoint> &keypoints1,
                 const std::vector<cv::KeyPoint> &keypoints2,
                 std::vector<cv::DMatch> &goodMatches,
@@ -103,15 +103,18 @@ void ransacTest(const std::vector<cv::DMatch> matches,
   // Compute 8-point F from all accepted matches
   fundemental = cv::findHomography(cv::Mat(points1), cv::Mat(points2), // matches
                   noArray(),0,2); // 8-point method
-  cout << fundemental << endl;
+  // cout << fundemental << endl;
+
+  return fundemental;
 
 
 }
 
-cv::Mat findAffineMat(
+float *findAffineMat(
   const std::vector<cv::DMatch> &matches,
   const std::vector<cv::KeyPoint> &keypoints1,
-  const std::vector<cv::KeyPoint> &keypoints2)
+  const std::vector<cv::KeyPoint> &keypoints2,
+  float *X)
 {
 
   // Calculate the Affine LS Homography
@@ -131,18 +134,7 @@ cv::Mat findAffineMat(
     final_matches[i][3] = keypoints2[matches[i].trainIdx].pt.y;
   }
 
-  float X[100];
-
   findAffine(matches.size(), final_matches, X);
-
-  // printf("-----------------------------------------------------\n");
-  // printf("\n[%f , %f , %f \n%f , %f , %f \n%f , %f , %f ]\n", X[0], X[1],
-  //        X[2], X[3] , X[4], X[5], X[6], X[7], X[8]);
-
-  Mat H = Mat(2, 3, CV_32FC1, &X);
-  cout << H << endl;
-
-  return H;
 
 }
 
@@ -220,26 +212,6 @@ int main(int argc, char **argv)
   #if 1
   // Calculate the Affine LS Homography
   ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match, DISTANCE, CONFIDENCE, 0.25);
-
-  int **final_matches;
-
-  final_matches = (int **)malloc(sizeof(int *)*ransac_match.size());
-  for (int i = 0; i < ransac_match.size(); i++) {
-    final_matches[i] = (int *)malloc(sizeof(int) * 4);
-  }
-
-  for (int i = 0; i < ransac_match.size(); i++) {
-
-    final_matches[i][0] = keypoints_1[ransac_match[i].queryIdx].pt.x;
-    final_matches[i][1] = keypoints_1[ransac_match[i].queryIdx].pt.y;
-    final_matches[i][2] = keypoints_2[ransac_match[i].trainIdx].pt.x;
-    final_matches[i][3] = keypoints_2[ransac_match[i].trainIdx].pt.y;
-  }
-
-  float X[100];
-
-  findAffine(ransac_match.size(), final_matches, X);
-
   printf("Before RS %d After RS %d\n", good_matches.size(), ransac_match.size());
 
   drawMatches(img_1, keypoints_1, img_2, keypoints_2, ransac_match,
@@ -248,30 +220,28 @@ int main(int argc, char **argv)
 
   imshow("After ransac", img_matches);
 
-  printf("\n[%f , %f , %f \n%f , %f , %f \n%f , %f , %f ]\n", X[0], X[1],
-         X[2], X[3] , X[4], X[5], X[6], X[7], X[8]);
+  float X[100];
 
-  Mat H = Mat(2, 3, CV_32FC1, &X);
+  findAffineMat(ransac_match, keypoints_1, keypoints_2,X);
+  
+  cv::Mat affinemat = Mat(2, 3, CV_32FC1, X);
+  
+  cout << affinemat << endl;
+
   Mat timage;
 
-  warpAffine(img_2, timage, H, img_1.size(), INTER_LINEAR |
+  warpAffine(img_2, timage, affinemat, img_1.size(), INTER_LINEAR |
              WARP_INVERSE_MAP , BORDER_CONSTANT, Scalar());
   imshow("Transformed", timage);
 
   alphablending(img_1, timage);
 
-  // void ransacTest(const std::vector<cv::DMatch> matches, const std::vector<cv::KeyPoint> &keypoints1,
-  //   const std::vector<cv::KeyPoint> &keypoints2, std::vector<cv::DMatch> &goodMatches, double distance,
-  //   double confidence, double minInlierRatio)
-
-  // warpPerspective(img_2, timage, tH, Size(720 , 576), INTER_LINEAR,
-  //   BORDER_CONSTANT, Scalar());
-
   #else
   // -- Calculate Projective RANSAC
 
-  Mat tmat = ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match);
-  cout << tmat << endl;
+  Mat tmat = ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match, DISTANCE, CONFIDENCE, 0.25);
+
+  // cout << tmat << endl;
 
   drawMatches(img_1, keypoints_1, img_2, keypoints_2, ransac_match,
               img_matches, Scalar(0, 255, 0), Scalar(0, 0, 255),
@@ -282,14 +252,16 @@ int main(int argc, char **argv)
 
   Mat fimg;
 
-  warpPerspective(img_2, fimg, tmat, Size(720 , 576), INTER_LINEAR,
-                  BORDER_CONSTANT, Scalar());
+  warpPerspective(img_2, fimg, tmat, img_1.size(), INTER_LINEAR |
+    WARP_INVERSE_MAP, BORDER_CONSTANT, Scalar());
 
   imshow("RANSAC", fimg);
 
-  Mat affinemat = Mat::zeros(2, 3, CV_32FC1);
-  affinemat = findAffineMat(ransac_match, keypoints_1, keypoints_2);
-  cout << affinemat << endl;
+  alphablending(img_1, fimg);
+
+  // Mat affinemat = Mat::zeros(2, 3, CV_32FC1);
+  // affinemat = findAffineMat(ransac_match, keypoints_1, keypoints_2);
+  // cout << affinemat << endl;
 
   // warpAffine(img_2, fimg, affinemat, Size(720 , 576), INTER_LINEAR,
   //                 BORDER_CONSTANT, Scalar());
@@ -300,7 +272,7 @@ int main(int argc, char **argv)
   #endif
 
   waitKey(0);
-
+  // free2d(&final_matches,ransac_match.size());
   return 0;
 }
 

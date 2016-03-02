@@ -12,6 +12,31 @@ using namespace std;
 using namespace cv;
 using namespace cv::xfeatures2d;
 
+int init2d(int ***arr, int n)
+{
+
+  int i;
+  int w = 4;
+
+  *arr = (int **)malloc(sizeof(int *)*n);
+  for (i = 0; i < n; i++) {
+    (*arr)[i] = (int *)malloc(sizeof(int) * w);
+  }
+
+  return 0;
+}
+
+int free2d(int ***arr, int n)
+{
+
+  int i;
+  for (i = 0; i < n; i++) {
+    free((*arr)[i]);
+  }
+  free((*arr));
+
+  return 0;
+}
 
 // A basic symmetry test
 void symmetryTest(const std::vector<cv::DMatch> &matches1, const std::vector<cv::DMatch> &matches2, std::vector<cv::DMatch> &symMatches)
@@ -85,30 +110,29 @@ int flannMatcher(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::
   for (int i = 0; i < descriptors_1.rows; i++) {
 
     if (matches[i].distance <= max(1.2 * min_dist, 0.02)) {
-      good_matches.push_back(matches[i]);
+      final_1.push_back(matches[i]);
     }
   }
 
+  matcher.match(descriptors_2, descriptors_1, matches);
 
-  // matcher.match(descriptors_2, descriptors_1, matches);
+  max_dist = 0; min_dist = 100;
+  for (int i = 0; i < descriptors_2.rows; i++) {
+    double dist = matches[i].distance;
+    if (dist < min_dist) min_dist = dist;
+    if (dist > max_dist) max_dist = dist;
+  }
+  printf("-- Max dist : %f \n", max_dist);
+  printf("-- Min dist : %f \n", min_dist);
 
-  // max_dist = 0; min_dist = 100;
-  // for (int i = 0; i < descriptors_2.rows; i++) {
-  //   double dist = matches[i].distance;
-  //   if (dist < min_dist) min_dist = dist;
-  //   if (dist > max_dist) max_dist = dist;
-  // }
-  // printf("-- Max dist : %f \n", max_dist);
-  // printf("-- Min dist : %f \n", min_dist);
+  for (int i = 0; i < descriptors_2.rows; i++) {
 
-  // for (int i = 0; i < descriptors_2.rows; i++) {
+    if (matches[i].distance <= max(2 * min_dist, 0.02)) {
+      final_2.push_back(matches[i]);
+    }
+  }
 
-  //   if (matches[i].distance <= max(2 * min_dist, 0.02)) {
-  //     final_2.push_back(matches[i]);
-  //   }
-  // }
-
-  // symmetryTest(final_1, final_2, matches);
+  symmetryTest(final_1, final_2, good_matches);
 
 }
 //Match descriptors based on knn FLANN and Lowe's ratio test
@@ -124,7 +148,7 @@ int flannKnn(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vect
   std::vector< DMatch > filtered_matches_1, filtered_matches_2;
 
   // Keep matches <0.8 (Lowe's paper), discard rest
-  const float ratio = 0.76;
+  const float ratio = 0.8;
   for (int i = 0; i < matches_1.size(); ++i) {
     if (matches_1[i][0].distance < (ratio * matches_1[i][1].distance)) {
       // printf("Dist 1 %f vs Dist 2 %f , Ratio %f\nn", matches_1[i][0].distance,
