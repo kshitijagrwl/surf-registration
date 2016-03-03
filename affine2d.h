@@ -1,3 +1,13 @@
+
+/*********************************************************************************/
+/* Given m sets of data points (Xi, Yi), represented by matrix A and a vector B, */
+/* this procedure performs the Least-Square Fitting using the formula:           */
+/*             transpose(A)*A*X = transpose(A)*B,   and solves for X.            */
+/* Provided by Jin-Long Chen, January 1991                   */
+/* Modified by George Stockman, October 1997 (generalized)                       */
+/*********************************************************************************/
+
+
 #include <stdio.h>
 #include <math.h>
 
@@ -123,14 +133,6 @@ int decomp(const int n, float A[][MaxVars], float B[], float X[])
 }
 /********* end of code decomp***********/
 
-
-/*********************************************************************************/
-/* Given m sets of data points (Xi, Yi), represented by matrix A and a vector B, */
-/* this procedure performs the Least-Square Fitting using the formula:           */
-/*             transpose(A)*A*X = transpose(A)*B,   and solves for X.            */
-/* Provided by Jin-Long Chen, January 1991					 */
-/* Modified by George Stockman, October 1997 (generalized)                       */
-/*********************************************************************************/
 
 int LeastSquaresFit( const int Neqs, const int Nvars, float (*A)[MaxVars], float B[], float X[] )
 {

@@ -1,16 +1,15 @@
+//*************************************//
 //
 //
-// Kshitij Agrawal
+//     © 2016 , Kshitij Agrawal
+//       GNU GPL v3
 //
+//    SURF implementation in OpenCV
+//    - loads image, computes SURF keypoints and descriptors
+//    - multiple descriptor matching techniques
+//    - alpha blended output
 //
-//
-
-//*******************surf.cpp******************//
-
-//********** SURF implementation in OpenCV*****//
-
-//**loads image, computes SURF keypoints and descriptors **//
-
+//*************************************//
 
 #include <stdio.h>
 #include <opencv2/core/core.hpp>
@@ -37,7 +36,7 @@ using namespace cv::xfeatures2d;
 /** @function readme */
 void readme()
 {
-  printf("Usage: ./SURF_detector <EO IMG> <IR IMG> <hessian>\n");
+  printf("Usage: ./SURF_detector <Reference Image> <Target Image> <Hessian>\n");
 }
 
 void cvt2point(const std::vector<cv::DMatch> matches,
@@ -62,11 +61,11 @@ void cvt2point(const std::vector<cv::DMatch> matches,
 
 // ransac test for stereo images
 cv::Mat ransacTest(const std::vector<cv::DMatch> matches,
-                const std::vector<cv::KeyPoint> &keypoints1,
-                const std::vector<cv::KeyPoint> &keypoints2,
-                std::vector<cv::DMatch> &goodMatches,
-                double distance, double confidence,
-                double minInlierRatio)
+                   const std::vector<cv::KeyPoint> &keypoints1,
+                   const std::vector<cv::KeyPoint> &keypoints2,
+                   std::vector<cv::DMatch> &goodMatches,
+                   double distance, double confidence,
+                   double minInlierRatio)
 {
   goodMatches.clear();
   // Convert keypoints into Point
@@ -74,9 +73,6 @@ cv::Mat ransacTest(const std::vector<cv::DMatch> matches,
   cvt2point(matches, keypoints1, keypoints2, points1, points2);
   // Compute F matrix using RANSAC
   std::vector<uchar> inliers(points1.size(), 0);
-  // cv::Mat fundemental = cv::findFundamentalMat(cv::Mat(points1), cv::Mat(points2),
-  //                       inliers, CV_FM_RANSAC, distance, confidence);
-
   cv::Mat fundemental = cv::findHomography(cv::Mat(points1), cv::Mat(points2),
                         RANSAC, distance, inliers, 1000, confidence);
 
@@ -102,11 +98,9 @@ cv::Mat ransacTest(const std::vector<cv::DMatch> matches,
 
   // Compute 8-point F from all accepted matches
   fundemental = cv::findHomography(cv::Mat(points1), cv::Mat(points2), // matches
-                  noArray(),0,2); // 8-point method
-  // cout << fundemental << endl;
+                                   noArray(), 0, 2); // 8-point method
 
   return fundemental;
-
 
 }
 
@@ -154,14 +148,14 @@ int main(int argc, char **argv)
     std::cout << " --(!) Error reading : %s" << argv[2] << std::endl;
     return -1;
   }
-  // Convert to gray
 
+  // -- Convert to gray
   Mat gray_ref, gray_obj;
 
   cvtColor(img_1, gray_ref, CV_BGR2GRAY, 0);
   cvtColor(img_2, gray_obj, CV_BGR2GRAY, 0);
 
-  //-- Step 1: Detect the keypoints using SURF Detector
+  // -- Detect the keypoints using SURF Detector
   int minHessian = atoi(argv[3]);
   Ptr<SURF> detector = SURF::create();
   detector->setHessianThreshold(minHessian);
@@ -174,32 +168,12 @@ int main(int argc, char **argv)
   detector->setHessianThreshold(minHessian);
   detector->detectAndCompute(gray_obj, Mat(), keypoints_2, descriptors_2);
 
-  #if 0
-  // -- Draw keypoints
-  Mat img_keypoints_1; Mat img_keypoints_2;
-
-  drawKeypoints(img_1, keypoints_1, img_keypoints_1, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
-  drawKeypoints(img_2, keypoints_2, img_keypoints_2, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
-
-  //-- Show detected (drawn) keypoints
-  imshow("Keypoints 1", img_keypoints_1);
-  imshow("Keypoints 2", img_keypoints_2);
-  #endif
-
   // -- Perform Matching
   vector <DMatch> good_matches;
   flannKnn(descriptors_1, descriptors_2, good_matches);
 
   // -- Draw Matches
   Mat img_matches;
-
-  // Mat mask = Mat::zeros(img_1.size(), CV_8U);  // type of mask is CV_8U
-  // Mat roi(mask, cv::Rect(231,130,630,334));
-  // roi = Scalar(255, 255, 255);
-  // drawMatches(img_2, keypoints_2, img_1, keypoints_1, good_matches,
-  //             img_matches, Scalar(0, 255, 0), Scalar(0, 0, 255),
-  //             vector< char >(), DrawMatchesFlags::DEFAULT);
-
 
   drawMatches(img_1, keypoints_1, img_2, keypoints_2, good_matches,
               img_matches, Scalar(0, 255, 0), Scalar(0, 0, 255),
@@ -208,9 +182,9 @@ int main(int argc, char **argv)
   printf("Found %d good matches\n", (int)good_matches.size());
   imshow("Good Matches & Object detection", img_matches);
 
-  vector<DMatch> ransac_match;
-  #if 1
+
   // Calculate the Affine LS Homography
+  vector<DMatch> ransac_match;
   ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match, DISTANCE, CONFIDENCE, 0.25);
   printf("Before RS %d After RS %d\n", good_matches.size(), ransac_match.size());
 
@@ -222,10 +196,10 @@ int main(int argc, char **argv)
 
   float X[100];
 
-  findAffineMat(ransac_match, keypoints_1, keypoints_2,X);
-  
+  findAffineMat(ransac_match, keypoints_1, keypoints_2, X);
+
   cv::Mat affinemat = Mat(2, 3, CV_32FC1, X);
-  
+
   cout << affinemat << endl;
 
   Mat timage;
@@ -236,43 +210,7 @@ int main(int argc, char **argv)
 
   alphablending(img_1, timage);
 
-  #else
-  // -- Calculate Projective RANSAC
-
-  Mat tmat = ransacTest(good_matches, keypoints_1, keypoints_2, ransac_match, DISTANCE, CONFIDENCE, 0.25);
-
-  // cout << tmat << endl;
-
-  drawMatches(img_1, keypoints_1, img_2, keypoints_2, ransac_match,
-              img_matches, Scalar(0, 255, 0), Scalar(0, 0, 255),
-              vector< char >(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
-
-  imshow("After ransac", img_matches);
-
-
-  Mat fimg;
-
-  warpPerspective(img_2, fimg, tmat, img_1.size(), INTER_LINEAR |
-    WARP_INVERSE_MAP, BORDER_CONSTANT, Scalar());
-
-  imshow("RANSAC", fimg);
-
-  alphablending(img_1, fimg);
-
-  // Mat affinemat = Mat::zeros(2, 3, CV_32FC1);
-  // affinemat = findAffineMat(ransac_match, keypoints_1, keypoints_2);
-  // cout << affinemat << endl;
-
-  // warpAffine(img_2, fimg, affinemat, Size(720 , 576), INTER_LINEAR,
-  //                 BORDER_CONSTANT, Scalar());
-
-  // imshow("Affine", fimg);
-
-
-  #endif
-
   waitKey(0);
-  // free2d(&final_matches,ransac_match.size());
   return 0;
 }
 

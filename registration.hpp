@@ -1,3 +1,12 @@
+//*************************************//
+//
+//
+//     © 2016 , Kshitij Agrawal
+//       GNU GPL v3
+//
+//
+//*************************************//
+
 #include <stdio.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d.hpp>
@@ -69,20 +78,9 @@ int bffKnn(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vector
     if (matches_1[i][0].distance < (ratio * matches_1[i][1].distance)) {
       // printf("Dist 1 - %f vs Dist 2 - %f , Ratio - %f\n", matches_1[i][0].distance,
       // matches_1[i][1].distance, matches_1[i][0].distance / matches_1[i][1].distance);
-      filtered_matches_1.push_back(matches_1[i][0]);
+      good_matches.push_back(matches_1[i][0]);
     }
   }
-  printf("-----------------------------------------------------\n");
-  ratio = 0.8;
-  for (int i = 0; i < matches_2.size(); ++i) {
-    if (matches_2[i][0].distance < (ratio * matches_2[i][1].distance)) {
-      // printf("Dist 1 - %f vs Dist 2 - %f , Ratio - %f\n", matches_2[i][0].distance,
-      // matches_2[i][1].distance, matches_2[i][0].distance / matches_2[i][1].distance);
-      filtered_matches_2.push_back(matches_2[i][0]);
-    }
-  }
-  printf("Set 1 %d Set 2 %d \n", filtered_matches_1.size(), filtered_matches_2.size());
-  symmetryTest(filtered_matches_1, filtered_matches_2, good_matches);
 }
 
 // Matching descriptor vectors using FLANN matcher & min distance test
@@ -103,10 +101,10 @@ int flannMatcher(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::
   printf("-- Max dist : %f \n", max_dist);
   printf("-- Min dist : %f \n", min_dist);
 
+
   // -- Select good matches, distance <2*min_dist,
   // -- or a small arbitary value ( 0.02 ) in the event that min_dist is very
   // -- small
-
   for (int i = 0; i < descriptors_1.rows; i++) {
 
     if (matches[i].distance <= max(1.2 * min_dist, 0.02)) {
@@ -143,7 +141,6 @@ int flannKnn(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vect
   std::vector< vector<DMatch> > matches_1, matches_2;
   matcher.knnMatch(descriptors_1, descriptors_2, matches_1, 2, noArray(), false);
 
-  matcher.knnMatch(descriptors_2, descriptors_1, matches_2, 2, noArray(), false);
 
   std::vector< DMatch > filtered_matches_1, filtered_matches_2;
 
@@ -156,17 +153,8 @@ int flannKnn(const cv::Mat descriptors_1, const cv::Mat descriptors_2, std::vect
       filtered_matches_1.push_back(matches_1[i][0]);
     }
   }
-  // printf("--------------------------------------------------\n");
-  for (int i = 0; i < matches_2.size(); ++i) {
-    if (matches_2[i][0].distance < (ratio * matches_2[i][1].distance)) {
-      // printf("Dist 1 %f vs Dist 2 %f , Ratio %f\nn", matches_2[i][0].distance,
-      // matches_2[i][1].distance, matches_2[i][0].distance / matches_2[i][1].distance);
-      filtered_matches_2.push_back(matches_2[i][0]);
-    }
-  }
-  printf("flanKNnn: Set 1 %d Set 2 %d \n", filtered_matches_1.size(), filtered_matches_2.size());
+
   good_matches = filtered_matches_1;
-  // symmetryTest(filtered_matches_1, filtered_matches_2, good_matches);
 }
 
 
@@ -209,7 +197,6 @@ int alphablending(const cv::Mat &ref, const cv::Mat &trans)
 
   }
   else {
-
     addWeighted(ref, alpha, trans, beta, 0.0, output);
   }
 
